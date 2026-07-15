@@ -9,6 +9,7 @@
 !package.json
 
 # typescript
+!src
 !**/*.ts
 
 # utility
