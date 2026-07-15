@@ -1,22 +1,24 @@
 {
-  "name": "@aonyxlimited/plugin-runtime",
-  "version": "0.1.0",
-  "description": "The plugin runtime system for AonyxBuddy",
-  "author": "WaterKat",
-  "main": "src/index.ts",
-  "scripts": {
-    "clean": "knip",
-    "types": "tsc",
-    "test": "vitest run",
-    "validate": "bun run clean && bun run types && bun run test",
-    "watch:clean": "knip --watch",
-    "watch:types": "tsc --watch",
-    "watch:test": "vitest",
-    "watch": "bun run --parallel \"watch:*\""
-  },
-  "devDependencies": {
-    "knip": "^6.23.0",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  }
+	"name": "@aonyxlimited/plugin-runtime",
+	"version": "0.1.0",
+	"description": "The plugin runtime system for AonyxBuddy",
+	"author": "WaterKat",
+	"main": "src/index.ts",
+	"scripts": {
+		"clean": "knip",
+		"format": "biome format --write",
+		"types": "tsc",
+		"test": "vitest run",
+		"validate": "bun run clean && bun run types && bun run format && bun run test",
+		"watch:clean": "knip --watch",
+		"watch:types": "tsc --watch",
+		"watch:format": "biome format --watch --write",
+		"watch:test": "vitest",
+		"watch": "bun run --parallel \"watch:*\""
+	},
+	"devDependencies": {
+		"knip": "^6.23.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.9"
+	}
 }
