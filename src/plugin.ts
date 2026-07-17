@@ -1,4 +1,10 @@
-export type PluginDependencies = {};
+export interface EventEmitter {
+  emit(event: unknown): void;
+};
+
+export type PluginDependencies = {
+  emitter: EventEmitter;
+};
 
 export type Manifest = Readonly<{
   name: string;
@@ -15,9 +21,9 @@ export type Event = Readonly<{
 export type Plugin = {
   manifest: Manifest;
   inject(dependencies: PluginDependencies): void;
-  onEvent(event: Event): void;
   initialize(): Promise<void>;
   deinitialize(): Promise<void>;
   start(): Promise<void>;
   stop(): Promise<void>;
+  onEvent(event: Event): void;
 };
