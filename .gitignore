@@ -5,12 +5,21 @@
 !.gitignore
 !README.md
 
-# npm
+# npm / bun
 !package.json
+!bun.lock
+node_modules
 
 # typescript
+!tsconfig.json
 !src
 !**/*.ts
 
 # utility
 **/*.ignore
+
+# biome
+!biome.json
+
+# knip
+!knip.json

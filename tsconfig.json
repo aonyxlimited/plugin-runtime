@@ -1,0 +1,11 @@
+{
+	"compilerOptions": {
+		"target": "esnext",
+		"moduleResolution": "bundler",
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"strict": true
+	},
+	"include": ["src"]
+}

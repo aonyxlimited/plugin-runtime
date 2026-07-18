@@ -1,25 +1,25 @@
 {
-  "name": "@aonyxlimited/plugin-runtime",
-  "version": "0.1.0",
-  "description": "The plugin runtime system for AonyxBuddy",
-  "author": "WaterKat",
-  "main": "src/index.ts",
-  "scripts": {
-    "check:clean": "knip",
-    "check:style": "biome check --write",
-    "check:types": "tsc",
-    "test": "vitest run",
-    "validate": "bun run --sequential \"check:*\" && bun run test",
-    "watch:check:clean": "knip --watch",
-    "watch:check:types": "tsc --watch",
-    "watch:check:style": "biome check --watch",
-    "watch:test": "vitest",
-    "watch": "bun run --parallel \"watch:*\""
-  },
-  "devDependencies": {
-    "knip": "^6.23.0",
-    "@biomejs/biome": "2.5.4",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
-  }
+	"name": "@aonyxlimited/plugin-runtime",
+	"version": "0.1.0",
+	"description": "The plugin runtime system for AonyxBuddy",
+	"author": "WaterKat",
+	"main": "src/index.ts",
+	"scripts": {
+		"check:clean": "knip",
+		"check:style": "biome check --write",
+		"check:types": "tsc",
+		"test": "vitest run",
+		"validate": "bun run --sequential \"check:*\" && bun run test",
+		"watch:check:clean": "knip --watch",
+		"watch:check:types": "tsc --watch",
+		"watch:check:style": "biome check --watch",
+		"watch:test": "vitest",
+		"watch": "bun run --parallel \"watch:*\""
+	},
+	"devDependencies": {
+		"knip": "^6.23.0",
+		"@biomejs/biome": "2.5.4",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.9"
+	}
 }
