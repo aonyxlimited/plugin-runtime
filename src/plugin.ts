@@ -1,12 +1,12 @@
-export interface EventEmitter {
+interface EventEmitter {
   emit(event: unknown): void;
-};
+}
 
 export type PluginDependencies = {
   emitter: EventEmitter;
 };
 
-export type Manifest = Readonly<{
+type Manifest = Readonly<{
   name: string;
 }>;
 

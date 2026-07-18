@@ -3,13 +3,17 @@ import type { Event, Plugin, PluginDependencies } from "./plugin.ts";
 export class Runtime {
   private registrationNames: Set<string> = new Set();
   private plugins: Plugin[] = [];
-  getRegistrationNames = () => this.plugins.map(r => r.manifest.name);
+  getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
 
   private sharedDependencies: PluginDependencies = {
-    emitter: this
+    emitter: this,
   };
 
-  private initialized: "deinitialized" | "initializing" | "initialized" | "deinitializing" = "deinitialized"
+  private initialized:
+    | "deinitialized"
+    | "initializing"
+    | "initialized"
+    | "deinitializing" = "deinitialized";
   isInitialized = () => this.initialized;
 
   private started: "stopped" | "starting" | "started" | "stopping" = "stopped";
@@ -74,9 +78,9 @@ export class Runtime {
   }
 
   async stop(): Promise<void> {
-    if (!this.started)
-      for (const registration of this.plugins.toReversed()) {
-        await registration.plugin.stop();
+    if (this.started)
+      for (const plugin of this.plugins.toReversed()) {
+        await plugin.stop();
       }
   }
 
@@ -86,6 +90,7 @@ export class Runtime {
     }
     this.isEmitting = true;
     while (this.events.length > 0) {
+      // biome-ignore lint/style/noNonNullAssertion: checked by while loop
       const event = this.events.shift()!;
       await this.emit(event);
     }
