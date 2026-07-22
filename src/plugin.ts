@@ -20,9 +20,9 @@ export type Event = Readonly<{
 
 export type Plugin = {
 	manifest: Manifest;
-	inject(dependencies: PluginDependencies): void;
+	setDependencies(dependencies: PluginDependencies): void;
 	initialize(): Promise<void>;
-	deinitialize(): Promise<void>;
+	terminate(): Promise<void>;
 	start(): Promise<void>;
 	stop(): Promise<void>;
 	onEvent(event: Event): void;
