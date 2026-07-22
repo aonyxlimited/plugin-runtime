@@ -1,159 +1,21 @@
 import type { Event, Plugin, PluginDependencies } from "./plugin.ts";
+import {
+  BestEffort,
+  Mutex,
+  RollbackError,
+  RollbackHelper,
+} from "./synchronization.ts";
 
 export class Runtime {
-<<<<<<< Updated upstream
-	private registrationNames: Set<string> = new Set();
-	private plugins: Plugin[] = [];
-	getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
-
-	private sharedDependencies: PluginDependencies = {
-		emitter: this,
-	};
-
-	private initialized:
-		| "deinitialized"
-		| "initializing"
-		| "initialized"
-		| "deinitializing" = "deinitialized";
-	isInitialized = () => this.initialized;
-
-	private started: "stopped" | "starting" | "started" | "stopping" = "stopped";
-	isStarted = () => this.started;
-
-	private events: Event[] = [];
-	private isEmitting: boolean = false;
-
-	register(plugin: Plugin): boolean {
-		if (this.registrationNames.has(plugin.manifest.name)) {
-			return false;
-		}
-		this.registrationNames.add(plugin.manifest.name);
-		this.plugins.push(plugin);
-		plugin.inject(this.sharedDependencies);
-		return true;
-	}
-
-	unregister(registrationName: string): boolean {
-		if (!this.registrationNames.has(registrationName)) {
-			return false;
-		}
-
-		const index = this.plugins.findIndex(
-			(plugin) => plugin.manifest.name === registrationName,
-		);
-
-		if (index === -1) {
-			return false;
-		}
-
-		this.registrationNames.delete(registrationName);
-		this.plugins.splice(index, 1);
-
-		return true;
-	}
-
-	async initialize(): Promise<void> {
-		for (const plugin of this.plugins) {
-			await plugin.initialize();
-		}
-	}
-
-	async deinitialize(): Promise<void> {
-		for (const plugin of this.plugins.toReversed()) {
-			await plugin.deinitialize();
-		}
-	}
-
-	async start(): Promise<void> {
-		if (this.started === "starting" || this.started === "started") {
-			return;
-		}
-
-		this.started = "starting";
-
-		for (const plugin of this.plugins) {
-			await plugin.start();
-		}
-
-		this.started = "started";
-	}
-
-	async stop(): Promise<void> {
-		if (this.started)
-			for (const plugin of this.plugins.toReversed()) {
-				await plugin.stop();
-			}
-	}
-
-	private async emitAll(): Promise<void> {
-		if (this.isEmitting) {
-			return;
-		}
-		this.isEmitting = true;
-		while (this.events.length > 0) {
-			// biome-ignore lint/style/noNonNullAssertion: checked by while loop
-			const event = this.events.shift()!;
-			await this.emit(event);
-		}
-		this.isEmitting = false;
-	}
-
-	async emit(event: Event): Promise<void> {
-		this.events.push(event);
-		return this.emitAll();
-	}
-=======
+  // Registrations
   private registrationNames: Set<string> = new Set();
   private plugins: Plugin[] = [];
+
   getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
 
   private sharedDependencies: PluginDependencies = {
     emitter: this,
   };
-
-  private state:
-    | "idle"
-    | "initializing"
-    | "initialized" //
-    | "starting"
-    | "running"
-    | "stopping"
-    | "stopped"
-    | "terminating"
-    | "terminated" = "idle";
-
-  private desiredState: typeof this.state = "idle";
-
-  isInitialized = () => {
-    return (
-      this.state !== "idle" &&
-      this.state !== "initializing" &&
-      this.state !== "terminating" &&
-      this.state !== "terminated"
-    );
-  };
-
-  isStarted = () => {
-    return this.state === "running";
-  };
-
-  private async changeState(desiredState: typeof this.state): Promise<void> {
-    while (this.state !== this.desiredState) {
-      switch (this.state) {
-        case "idle":
-          this.state = "initializing";
-          for (const plugin of this.plugins) {
-            await plugin.initialize();
-          }
-          this.state = "initialized";
-          continue;
-        case "initializing":
-      }
-    }
-  }
-
-  private events: Event[] = [];
-  private isEmitting: boolean = false;
 
   register(plugin: Plugin): boolean {
     if (this.registrationNames.has(plugin.manifest.name)) {
@@ -184,48 +46,152 @@ export class Runtime {
     return true;
   }
 
-  private async _initialize(): Promise<void> {
-    for (const plugin of this.plugins) {
-      await plugin.initialize();
+  // Lifecycles
+
+  private state:
+    | "uninitialized"
+    | "initializing"
+    | "inactive"
+    | "starting"
+    | "running"
+    | "stopping"
+    | "terminating"
+    | "terminated"
+    | "faulted" = "uninitialized";
+  private stateLock: Mutex = new Mutex();
+
+  isInitialized = () => {
+    return (
+      this.state === "inactive" ||
+      this.state === "starting" ||
+      this.state === "running" ||
+      this.state === "stopping"
+    );
+  };
+
+  isStarted = () => {
+    return this.state === "running";
+  };
+
+  private async changeState(desiredState: typeof this.state): Promise<void> {
+    const unlock = await this.stateLock.lock();
+    try {
+      while (this.state !== desiredState) {
+        switch (this.state) {
+          case "uninitialized":
+            if (desiredState === "terminated") {
+              this.state = "terminated";
+              break;
+            }
+            this.state = "initializing";
+            try {
+              const helper = new RollbackHelper<Plugin>(
+                (value) => value.initialize(),
+                (value) => value.deinitialize(),
+                (value) => value.manifest.name,
+              );
+              await helper.run(this.plugins);
+              this.state = "inactive";
+            } catch (error) {
+              if (error instanceof RollbackError) {
+                this.state = "faulted";
+              } else {
+                this.state = "uninitialized";
+              }
+              throw error;
+            }
+            break;
+          case "inactive":
+            if (desiredState !== "terminated") {
+              this.state = "starting";
+              try {
+                const helper = new RollbackHelper<Plugin>(
+                  (value) => value.start(),
+                  (value) => value.stop(),
+                  (value) => value.manifest.name,
+                );
+                await helper.run(this.plugins);
+                this.state = "running";
+              } catch (error) {
+                if (error instanceof RollbackError) {
+                  this.state = "faulted";
+                } else {
+                  this.state = "inactive";
+                }
+                throw error;
+              }
+              break;
+            } else {
+              this.state = "terminating";
+              try {
+                await BestEffort<Plugin>(
+                  this.plugins.toReversed(),
+                  (value) => value.deinitialize(),
+                  (value) => value.manifest.name,
+                );
+              } catch (e) {
+                this.state = "faulted";
+                throw e;
+              }
+              this.state = "terminated";
+              break;
+            }
+          case "running":
+            this.state = "stopping";
+            try {
+              await BestEffort<Plugin>(
+                this.plugins.toReversed(),
+                (value) => value.stop(),
+                (value) => value.manifest.name,
+              );
+            } catch (e) {
+              this.state = "faulted";
+              throw e;
+            }
+            this.state = "inactive";
+            break;
+          case "initializing":
+          case "starting":
+          case "stopping":
+          case "terminating":
+            throw new Error(
+              `Invalid state: ${this.state}. Lifecycle may have failed.`,
+            );
+          case "terminated":
+            throw new Error(
+              "Runtime system is terminated, and will not make changes.",
+            );
+          case "faulted":
+            throw new Error(
+              "Runtime system is faulted, and cannot make changes.",
+            );
+        }
+      }
+    } finally {
+      unlock();
     }
   }
 
   async initialize(): Promise<void> {
-    this.desiredState = "initialized";
-    return this.changeState();
+    return this.changeState("inactive");
   }
 
   async deinitialize(): Promise<void> {
-    for (const plugin of this.plugins.toReversed()) {
-      await plugin.deinitialize();
-    }
-  }
-
-  async changeState() {
-    switch (this.state) {
-    }
+    return this.changeState("terminated");
   }
 
   async start(): Promise<void> {
-    if (this.started === "starting" || this.started === "started") {
-      return;
-    }
-
-    this.started = "starting";
-
-    for (const plugin of this.plugins) {
-      await plugin.start();
-    }
-
-    this.started = "started";
+    return this.changeState("running");
   }
 
   async stop(): Promise<void> {
-    if (this.started)
-      for (const plugin of this.plugins.toReversed()) {
-        await plugin.stop();
-      }
+    return this.changeState("inactive");
   }
+
+  // Events
+
+  private events: Event[] = [];
+  private isEmitting: boolean = false;
 
   private async emitAll(): Promise<void> {
     if (this.isEmitting) {
@@ -244,5 +210,4 @@ export class Runtime {
     this.events.push(event);
     return this.emitAll();
   }
->>>>>>> Stashed changes
 }
