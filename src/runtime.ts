@@ -1,213 +1,232 @@
 import type { Event, Plugin, PluginDependencies } from "./plugin.ts";
 import {
-  BestEffort,
-  Mutex,
-  RollbackError,
-  RollbackHelper,
+	BestEffort,
+	Mutex,
+	RollbackError,
+	RollbackHelper,
 } from "./synchronization.ts";
 
-export class Runtime {
-  // Registrations
-  private registrationNames: Set<string> = new Set();
-  private plugins: Plugin[] = [];
+export class Runtime implements Plugin {
+	// Plugin
+	manifest: Readonly<{ name: string }>;
+	private sharedDependencies: PluginDependencies = {
+		emitter: this,
+	};
 
-  getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
+	constructor(name?: string) {
+		this.manifest = {
+			name: name ?? crypto.randomUUID(),
+		};
+	}
 
-  private sharedDependencies: PluginDependencies = {
-    emitter: this,
-  };
+	// Registrations
+	private registrationNames: Set<string> = new Set();
+	private plugins: Plugin[] = [];
 
-  register(plugin: Plugin): boolean {
-    if (this.registrationNames.has(plugin.manifest.name)) {
-      return false;
-    }
-    this.registrationNames.add(plugin.manifest.name);
-    this.plugins.push(plugin);
-    plugin.inject(this.sharedDependencies);
-    return true;
-  }
+	getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
 
-  unregister(registrationName: string): boolean {
-    if (!this.registrationNames.has(registrationName)) {
-      return false;
-    }
+	register(plugin: Plugin): boolean {
+		if (this.registrationNames.has(plugin.manifest.name)) {
+			return false;
+		}
+		this.registrationNames.add(plugin.manifest.name);
+		this.plugins.push(plugin);
+		plugin.setDependencies(this.sharedDependencies);
+		return true;
+	}
 
-    const index = this.plugins.findIndex(
-      (plugin) => plugin.manifest.name === registrationName,
-    );
+	unregister(registrationName: string): boolean {
+		if (!this.registrationNames.has(registrationName)) {
+			return false;
+		}
 
-    if (index === -1) {
-      return false;
-    }
+		const index = this.plugins.findIndex(
+			(plugin) => plugin.manifest.name === registrationName,
+		);
 
-    this.registrationNames.delete(registrationName);
-    this.plugins.splice(index, 1);
+		if (index === -1) {
+			return false;
+		}
 
-    return true;
-  }
+		this.registrationNames.delete(registrationName);
+		this.plugins.splice(index, 1);
 
-  // Lifecycles
+		return true;
+	}
 
-  private state:
-    | "uninitialized"
-    | "initializing"
-    | "inactive"
-    | "starting"
-    | "running"
-    | "stopping"
-    | "terminating"
-    | "terminated"
-    | "faulted" = "uninitialized";
-  private stateLock: Mutex = new Mutex();
+	setDependencies(dependencies: PluginDependencies): void {
+		this.sharedDependencies = dependencies;
+		for (const plugin of this.plugins) {
+			plugin.setDependencies(dependencies);
+		}
+	}
 
-  isInitialized = () => {
-    return (
-      this.state === "inactive" ||
-      this.state === "starting" ||
-      this.state === "running" ||
-      this.state === "stopping"
-    );
-  };
+	// Lifecycles
 
-  isStarted = () => {
-    return this.state === "running";
-  };
+	private state:
+		| "uninitialized"
+		| "initializing"
+		| "inactive"
+		| "starting"
+		| "running"
+		| "stopping"
+		| "terminating"
+		| "terminated"
+		| "faulted" = "uninitialized";
+	private stateLock: Mutex = new Mutex();
 
-  private async changeState(desiredState: typeof this.state): Promise<void> {
-    const unlock = await this.stateLock.lock();
-    try {
-      while (this.state !== desiredState) {
-        switch (this.state) {
-          case "uninitialized":
-            if (desiredState === "terminated") {
-              this.state = "terminated";
-              break;
-            }
-            this.state = "initializing";
-            try {
-              const helper = new RollbackHelper<Plugin>(
-                (value) => value.initialize(),
-                (value) => value.deinitialize(),
-                (value) => value.manifest.name,
-              );
-              await helper.run(this.plugins);
-              this.state = "inactive";
-            } catch (error) {
-              if (error instanceof RollbackError) {
-                this.state = "faulted";
-              } else {
-                this.state = "uninitialized";
-              }
-              throw error;
-            }
-            break;
-          case "inactive":
-            if (desiredState !== "terminated") {
-              this.state = "starting";
-              try {
-                const helper = new RollbackHelper<Plugin>(
-                  (value) => value.start(),
-                  (value) => value.stop(),
-                  (value) => value.manifest.name,
-                );
-                await helper.run(this.plugins);
-                this.state = "running";
-              } catch (error) {
-                if (error instanceof RollbackError) {
-                  this.state = "faulted";
-                } else {
-                  this.state = "inactive";
-                }
-                throw error;
-              }
-              break;
-            } else {
-              this.state = "terminating";
-              try {
-                await BestEffort<Plugin>(
-                  this.plugins.toReversed(),
-                  (value) => value.deinitialize(),
-                  (value) => value.manifest.name,
-                );
-              } catch (e) {
-                this.state = "faulted";
-                throw e;
-              }
-              this.state = "terminated";
-              break;
-            }
-          case "running":
-            this.state = "stopping";
-            try {
-              await BestEffort<Plugin>(
-                this.plugins.toReversed(),
-                (value) => value.stop(),
-                (value) => value.manifest.name,
-              );
-            } catch (e) {
-              this.state = "faulted";
-              throw e;
-            }
-            this.state = "inactive";
-            break;
-          case "initializing":
-          case "starting":
-          case "stopping":
-          case "terminating":
-            throw new Error(
-              `Invalid state: ${this.state}. Lifecycle may have failed.`,
-            );
-          case "terminated":
-            throw new Error(
-              "Runtime system is terminated, and will not make changes.",
-            );
-          case "faulted":
-            throw new Error(
-              "Runtime system is faulted, and cannot make changes.",
-            );
-        }
-      }
-    } finally {
-      unlock();
-    }
-  }
+	isInitialized = () => {
+		return (
+			this.state === "inactive" ||
+			this.state === "starting" ||
+			this.state === "running" ||
+			this.state === "stopping"
+		);
+	};
 
-  async initialize(): Promise<void> {
-    return this.changeState("inactive");
-  }
+	isStarted = () => {
+		return this.state === "running";
+	};
 
-  async deinitialize(): Promise<void> {
-    return this.changeState("terminated");
-  }
+	private async changeState(desiredState: typeof this.state): Promise<void> {
+		const unlock = await this.stateLock.lock();
+		try {
+			while (this.state !== desiredState) {
+				switch (this.state) {
+					case "uninitialized":
+						if (desiredState === "terminated") {
+							this.state = "terminated";
+							break;
+						}
+						this.state = "initializing";
+						try {
+							const helper = new RollbackHelper<Plugin>(
+								(value) => value.initialize(),
+								(value) => value.terminate(),
+								(value) => value.manifest.name,
+							);
+							await helper.run(this.plugins);
+							this.state = "inactive";
+						} catch (error) {
+							if (error instanceof RollbackError) {
+								this.state = "faulted";
+							} else {
+								this.state = "uninitialized";
+							}
+							throw error;
+						}
+						break;
+					case "inactive":
+						if (desiredState !== "terminated") {
+							this.state = "starting";
+							try {
+								const helper = new RollbackHelper<Plugin>(
+									(value) => value.start(),
+									(value) => value.stop(),
+									(value) => value.manifest.name,
+								);
+								await helper.run(this.plugins);
+								this.state = "running";
+							} catch (error) {
+								if (error instanceof RollbackError) {
+									this.state = "faulted";
+								} else {
+									this.state = "inactive";
+								}
+								throw error;
+							}
+							break;
+						} else {
+							this.state = "terminating";
+							try {
+								await BestEffort<Plugin>(
+									this.plugins.toReversed(),
+									(value) => value.terminate(),
+									(value) => value.manifest.name,
+								);
+							} catch (e) {
+								this.state = "faulted";
+								throw e;
+							}
+							this.state = "terminated";
+							break;
+						}
+					case "running":
+						this.state = "stopping";
+						try {
+							await BestEffort<Plugin>(
+								this.plugins.toReversed(),
+								(value) => value.stop(),
+								(value) => value.manifest.name,
+							);
+						} catch (e) {
+							this.state = "faulted";
+							throw e;
+						}
+						this.state = "inactive";
+						break;
+					case "initializing":
+					case "starting":
+					case "stopping":
+					case "terminating":
+						throw new Error(
+							`Invalid state: ${this.state}. Lifecycle may have failed.`,
+						);
+					case "terminated":
+						throw new Error(
+							"Runtime system is terminated, and will not make changes.",
+						);
+					case "faulted":
+						throw new Error(
+							"Runtime system is faulted, and cannot make changes.",
+						);
+				}
+			}
+		} finally {
+			unlock();
+		}
+	}
 
-  async start(): Promise<void> {
-    return this.changeState("running");
-  }
+	async initialize(): Promise<void> {
+		return this.changeState("inactive");
+	}
 
-  async stop(): Promise<void> {
-    return this.changeState("inactive");
-  }
+	async terminate(): Promise<void> {
+		return this.changeState("terminated");
+	}
 
-  // Events
+	async start(): Promise<void> {
+		return this.changeState("running");
+	}
 
-  private events: Event[] = [];
-  private isEmitting: boolean = false;
+	async stop(): Promise<void> {
+		return this.changeState("inactive");
+	}
 
-  private async emitAll(): Promise<void> {
-    if (this.isEmitting) {
-      return;
-    }
-    this.isEmitting = true;
-    while (this.events.length > 0) {
-      // biome-ignore lint/style/noNonNullAssertion: checked by while loop
-      const event = this.events.shift()!;
-      await this.emit(event);
-    }
-    this.isEmitting = false;
-  }
+	// Events
 
-  async emit(event: Event): Promise<void> {
-    this.events.push(event);
-    return this.emitAll();
-  }
+	private events: Event[] = [];
+	private isEmitting: boolean = false;
+
+	private async emitAll(): Promise<void> {
+		if (this.isEmitting) {
+			return;
+		}
+		this.isEmitting = true;
+		while (this.events.length > 0) {
+			// biome-ignore lint/style/noNonNullAssertion: checked by while loop
+			const event = this.events.shift()!;
+			await this.emit(event);
+		}
+		this.isEmitting = false;
+	}
+
+	async emit(event: Event): Promise<void> {
+		this.events.push(event);
+		return this.emitAll();
+	}
+
+	onEvent(event: Event): void {
+		this.emit(event);
+	}
 }
