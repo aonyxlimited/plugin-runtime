@@ -12,9 +12,9 @@ test("runtime/register_plugin", () => {
 		manifest = {
 			name: "InitPluginA",
 		};
-		inject(_dependencies: PluginDependencies): void {}
+		setDependencies(_dependencies: PluginDependencies): void {}
 		async initialize(): Promise<void> {}
-		async deinitialize(): Promise<void> {}
+		async terminate(): Promise<void> {}
 		async start(): Promise<void> {}
 		async stop(): Promise<void> {}
 		onEvent(_event: Event): void {}
@@ -88,20 +88,29 @@ test("runtime/register_plugin", () => {
 	expect(runtime.getRegistrationNames()).toEqual([]);
 });
 
-test("runtime/init_plugin", async () => {
+test("runtime/lifecycle", async () => {
 	const initializedPluginNames: string[] = [];
+	const terminatedPluginNames: string[] = [];
+	const startedPluginNames: string[] = [];
+	const stoppedPluginNames: string[] = [];
 
 	class InitPluginA implements Plugin {
 		manifest = {
 			name: "InitPluginA",
 		};
-		inject(_dependencies: PluginDependencies): void {}
+		setDependencies(_dependencies: PluginDependencies): void {}
 		async initialize(): Promise<void> {
 			initializedPluginNames.push(this.manifest.name);
 		}
-		async deinitialize(): Promise<void> {}
-		async start(): Promise<void> {}
-		async stop(): Promise<void> {}
+		async terminate(): Promise<void> {
+			terminatedPluginNames.push(this.manifest.name);
+		}
+		async start(): Promise<void> {
+			startedPluginNames.push(this.manifest.name);
+		}
+		async stop(): Promise<void> {
+			stoppedPluginNames.push(this.manifest.name);
+		}
 		onEvent(_event: Event): void {}
 	}
 
@@ -124,10 +133,71 @@ test("runtime/init_plugin", async () => {
 	runtime.register(pluginA);
 	runtime.register(pluginB);
 	runtime.register(pluginC);
-	await runtime.initialize();
 	expect(runtime.getRegistrationNames()).toEqual([
 		"InitPluginA",
 		"InitPluginB",
 		"InitPluginC",
 	]);
+	expect(runtime.isInitialized()).toBe(false);
+	expect(runtime.isStarted()).toBe(false);
+
+	await runtime.initialize();
+	expect(initializedPluginNames).toEqual([
+		"InitPluginA",
+		"InitPluginB",
+		"InitPluginC",
+	]);
+	expect(runtime.isInitialized()).toBe(true);
+	expect(runtime.isStarted()).toBe(false);
+
+	await runtime.start();
+	expect(startedPluginNames).toEqual([
+		"InitPluginA",
+		"InitPluginB",
+		"InitPluginC",
+	]);
+	expect(runtime.isInitialized()).toBe(true);
+	expect(runtime.isStarted()).toBe(true);
+
+	await runtime.stop();
+	expect(stoppedPluginNames).toEqual([
+		"InitPluginC",
+		"InitPluginB",
+		"InitPluginA",
+	]);
+	expect(runtime.isInitialized()).toBe(true);
+	expect(runtime.isStarted()).toBe(false);
+
+	await runtime.start();
+	expect(startedPluginNames).toEqual([
+		"InitPluginA",
+		"InitPluginB",
+		"InitPluginC",
+		"InitPluginA",
+		"InitPluginB",
+		"InitPluginC",
+	]);
+	expect(runtime.isInitialized()).toBe(true);
+	expect(runtime.isStarted()).toBe(true);
+
+	await runtime.stop();
+	expect(stoppedPluginNames).toEqual([
+		"InitPluginC",
+		"InitPluginB",
+		"InitPluginA",
+		"InitPluginC",
+		"InitPluginB",
+		"InitPluginA",
+	]);
+	expect(runtime.isInitialized()).toBe(true);
+	expect(runtime.isStarted()).toBe(false);
+
+	await runtime.terminate();
+	expect(terminatedPluginNames).toEqual([
+		"InitPluginC",
+		"InitPluginB",
+		"InitPluginA",
+	]);
+	expect(runtime.isInitialized()).toBe(false);
+	expect(runtime.isStarted()).toBe(false);
 });
