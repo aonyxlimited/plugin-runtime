@@ -1,6 +1,7 @@
 import type { Event, Plugin, PluginDependencies } from "./plugin.ts";
 
 export class Runtime {
+<<<<<<< Updated upstream
 	private registrationNames: Set<string> = new Set();
 	private plugins: Plugin[] = [];
 	getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
@@ -101,4 +102,147 @@ export class Runtime {
 		this.events.push(event);
 		return this.emitAll();
 	}
+=======
+  private registrationNames: Set<string> = new Set();
+  private plugins: Plugin[] = [];
+  getRegistrationNames = () => this.plugins.map((r) => r.manifest.name);
+
+  private sharedDependencies: PluginDependencies = {
+    emitter: this,
+  };
+
+  private state:
+    | "idle"
+    | "initializing"
+    | "initialized" //
+    | "starting"
+    | "running"
+    | "stopping"
+    | "stopped"
+    | "terminating"
+    | "terminated" = "idle";
+
+  private desiredState: typeof this.state = "idle";
+
+  isInitialized = () => {
+    return (
+      this.state !== "idle" &&
+      this.state !== "initializing" &&
+      this.state !== "terminating" &&
+      this.state !== "terminated"
+    );
+  };
+
+  isStarted = () => {
+    return this.state === "running";
+  };
+
+  private async changeState(desiredState: typeof this.state): Promise<void> {
+    while (this.state !== this.desiredState) {
+      switch (this.state) {
+        case "idle":
+          this.state = "initializing";
+          for (const plugin of this.plugins) {
+            await plugin.initialize();
+          }
+          this.state = "initialized";
+          continue;
+        case "initializing":
+      }
+    }
+  }
+
+  private events: Event[] = [];
+  private isEmitting: boolean = false;
+
+  register(plugin: Plugin): boolean {
+    if (this.registrationNames.has(plugin.manifest.name)) {
+      return false;
+    }
+    this.registrationNames.add(plugin.manifest.name);
+    this.plugins.push(plugin);
+    plugin.inject(this.sharedDependencies);
+    return true;
+  }
+
+  unregister(registrationName: string): boolean {
+    if (!this.registrationNames.has(registrationName)) {
+      return false;
+    }
+
+    const index = this.plugins.findIndex(
+      (plugin) => plugin.manifest.name === registrationName,
+    );
+
+    if (index === -1) {
+      return false;
+    }
+
+    this.registrationNames.delete(registrationName);
+    this.plugins.splice(index, 1);
+
+    return true;
+  }
+
+  private async _initialize(): Promise<void> {
+    for (const plugin of this.plugins) {
+      await plugin.initialize();
+    }
+  }
+
+  async initialize(): Promise<void> {
+    this.desiredState = "initialized";
+    return this.changeState();
+  }
+
+  async deinitialize(): Promise<void> {
+    for (const plugin of this.plugins.toReversed()) {
+      await plugin.deinitialize();
+    }
+  }
+
+  async changeState() {
+    switch (this.state) {
+    }
+  }
+
+  async start(): Promise<void> {
+    if (this.started === "starting" || this.started === "started") {
+      return;
+    }
+
+    this.started = "starting";
+
+    for (const plugin of this.plugins) {
+      await plugin.start();
+    }
+
+    this.started = "started";
+  }
+
+  async stop(): Promise<void> {
+    if (this.started)
+      for (const plugin of this.plugins.toReversed()) {
+        await plugin.stop();
+      }
+  }
+
+  private async emitAll(): Promise<void> {
+    if (this.isEmitting) {
+      return;
+    }
+    this.isEmitting = true;
+    while (this.events.length > 0) {
+      // biome-ignore lint/style/noNonNullAssertion: checked by while loop
+      const event = this.events.shift()!;
+      await this.emit(event);
+    }
+    this.isEmitting = false;
+  }
+
+  async emit(event: Event): Promise<void> {
+    this.events.push(event);
+    return this.emitAll();
+  }
+>>>>>>> Stashed changes
 }
