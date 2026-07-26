@@ -1,0 +1,8 @@
+**
+!package.json
+!bun.lock
+!biome.json
+!knip.json
+!tsconfig.json
+!src/
+!src/**/*.md
