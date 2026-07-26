@@ -88,6 +88,10 @@ export class Runtime implements Plugin {
 		return this.state === "running";
 	};
 
+	isFaulted = () => {
+		return this.state === "faulted";
+	};
+
 	private async changeState(desiredState: typeof this.state): Promise<void> {
 		const unlock = await this.stateLock.lock();
 		try {
