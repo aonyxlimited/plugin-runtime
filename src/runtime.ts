@@ -71,26 +71,37 @@ export class Runtime implements Plugin {
 		| "running"
 		| "stopping"
 		| "terminating"
-		| "terminated"
-		| "faulted" = "uninitialized";
+		| "terminated" = "uninitialized";
 	private stateLock: Mutex = new Mutex();
 
-	isInitialized = () => {
+	private faulted: boolean = false;
+
+	isFaulted(): boolean {
+		return this.faulted === true;
+	}
+
+	resetFault() {
+		this.faulted = false;
+	}
+
+	isInitialized(): boolean {
+		if (this.isFaulted()) {
+			return false;
+		}
 		return (
 			this.state === "inactive" ||
 			this.state === "starting" ||
 			this.state === "running" ||
 			this.state === "stopping"
 		);
-	};
+	}
 
-	isStarted = () => {
+	isStarted(): boolean {
+		if (this.isFaulted()) {
+			return false;
+		}
 		return this.state === "running";
-	};
-
-	isFaulted = () => {
-		return this.state === "faulted";
-	};
+	}
 
 	private async changeState(desiredState: typeof this.state): Promise<void> {
 		const unlock = await this.stateLock.lock();
@@ -99,6 +110,17 @@ export class Runtime implements Plugin {
 				switch (this.state) {
 					case "uninitialized":
 						if (desiredState === "terminated") {
+							this.state = "terminating";
+							try {
+								await BestEffort<Plugin>(
+									this.plugins.toReversed(),
+									(value) => value.terminate(),
+									(value) => value.manifest.name,
+								);
+							} catch (e) {
+								this.faulted = true;
+								throw e;
+							}
 							this.state = "terminated";
 							break;
 						}
@@ -113,7 +135,7 @@ export class Runtime implements Plugin {
 							this.state = "inactive";
 						} catch (error) {
 							if (error instanceof RollbackError) {
-								this.state = "faulted";
+								this.faulted = true;
 							} else {
 								this.state = "uninitialized";
 							}
@@ -133,7 +155,7 @@ export class Runtime implements Plugin {
 								this.state = "running";
 							} catch (error) {
 								if (error instanceof RollbackError) {
-									this.state = "faulted";
+									this.faulted = true;
 								} else {
 									this.state = "inactive";
 								}
@@ -149,7 +171,7 @@ export class Runtime implements Plugin {
 									(value) => value.manifest.name,
 								);
 							} catch (e) {
-								this.state = "faulted";
+								this.faulted = true;
 								throw e;
 							}
 							this.state = "terminated";
@@ -164,7 +186,7 @@ export class Runtime implements Plugin {
 								(value) => value.manifest.name,
 							);
 						} catch (e) {
-							this.state = "faulted";
+							this.faulted = true;
 							throw e;
 						}
 						this.state = "inactive";
@@ -180,9 +202,14 @@ export class Runtime implements Plugin {
 						throw new Error(
 							"Runtime system is terminated, and will not make changes.",
 						);
-					case "faulted":
+					default:
+						if (this.faulted === true) {
+							throw new Error(
+								"Runtime system is faulted, and cannot make changes.",
+							);
+						}
 						throw new Error(
-							"Runtime system is faulted, and cannot make changes.",
+							`Invalid state: ${this.state}. Lifecycle may have failed.`,
 						);
 				}
 			}
