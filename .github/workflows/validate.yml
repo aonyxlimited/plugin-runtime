@@ -1,0 +1,26 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - "wip/waterkat"
+
+permissions:
+  contents: read
+
+jobs:
+  container-validation:
+    name: Container Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build and validate
+        run: |
+          docker build \
+            --pull \
+            --progress=plain \
+            --tag plugin-runtime:ci \
+            .

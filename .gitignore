@@ -1,25 +1,26 @@
 # reverse git ignore
-**/*
+*
+!*/
 
 # git
 !.gitignore
 !README.md
+!.github/**/*.yml
 
 # npm / bun
 !package.json
 !bun.lock
-node_modules
+**/node_modules/
 
 # typescript
 !tsconfig.json
-!src
-!**/*.ts
-
-# utility
-**/*.ignore
+!src/**/*.ts
 
 # biome
 !biome.json
 
 # knip
 !knip.json
+
+# utility
+**/*.ignore
