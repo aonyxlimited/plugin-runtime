@@ -1,1 +1,1 @@
-export { Runtime } from "./runtime.ts";
+export { Runtime, RuntimeError } from "./runtime.ts";
